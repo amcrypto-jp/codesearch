@@ -41,9 +41,10 @@ type IndexWriter struct {
 	Verbose bool // log status using package log
 	Zip     bool // index content of zip files
 
-	MaxFileLen      int64
-	MaxLineLen      int
-	MaxTextTrigrams int
+	MaxFileLen          int64
+	MaxLineLen          int
+	MaxTextTrigrams     int
+	MaxInvalidUTF8Ratio float64
 
 	trigram *sparse.Set // trigrams for the current file
 	buf     [32]byte    // scratch buffer
@@ -86,6 +87,7 @@ func Create(file string) *IndexWriter {
 	ix.MaxFileLen = DefaultMaxFileLen
 	ix.MaxLineLen = DefaultMaxLineLen
 	ix.MaxTextTrigrams = DefaultMaxTextTrigrams
+	ix.MaxInvalidUTF8Ratio = DefaultMaxInvalidUTF8Ratio
 	return ix
 }
 
@@ -136,9 +138,10 @@ func makePostEntry(trigram uint32, fileid int) postEntry {
 // bytes, if it contains a line longer than maxLineLen bytes,
 // or if it contains more than maxTextTrigrams distinct trigrams.
 const (
-	DefaultMaxFileLen      = 1 << 30
-	DefaultMaxLineLen      = 2000
-	DefaultMaxTextTrigrams = 20000
+	DefaultMaxFileLen          = 1 << 30
+	DefaultMaxLineLen          = 2000
+	DefaultMaxTextTrigrams     = 20000
+	DefaultMaxInvalidUTF8Ratio = 0
 )
 
 // AddRoots adds the given roots to the index's list of roots.
@@ -209,25 +212,44 @@ func (ix *IndexWriter) Add(name string, f io.Reader) error {
 				log.Printf("%s: %v", r, err)
 				continue
 			}
-			ix.add(name+"\x01"+file.Name, r)
+			ix.add(name+"\x01"+file.Name, r, int64(file.UncompressedSize64))
 			r.Close()
 		}
 		return err
 	}
 
 NoZip:
-	return ix.add(name, f)
+	return ix.add(name, f, readerSize(f))
 }
 
-func (ix *IndexWriter) add(name string, f io.Reader) error {
+func readerSize(f io.Reader) int64 {
+	statter, ok := f.(interface {
+		Stat() (os.FileInfo, error)
+	})
+	if !ok {
+		return -1
+	}
+	info, err := statter.Stat()
+	if err != nil || info == nil || !info.Mode().IsRegular() {
+		return -1
+	}
+	return info.Size()
+}
+
+func (ix *IndexWriter) add(name string, f io.Reader, size int64) error {
+	if ix.tooLong(name, size) {
+		return nil
+	}
 	ix.trigram.Reset()
 	var (
-		c       = byte(0)
-		i       = 0
-		buf     = ix.inbuf[:0]
-		tv      = uint32(0)
-		n       = int64(0)
-		linelen = 0
+		c             = byte(0)
+		i             = 0
+		buf           = ix.inbuf[:0]
+		tv            = uint32(0)
+		n             = int64(0)
+		linelen       = 0
+		invalidUTF8   = int64(0)
+		prevPairValid = true
 	)
 	for {
 		tv = (tv << 8) & (1<<24 - 1)
@@ -248,20 +270,22 @@ func (ix *IndexWriter) add(name string, f io.Reader) error {
 		c = buf[i]
 		i++
 		tv |= uint32(c)
-		if n++; n >= 3 {
-			ix.trigram.Add(tv)
-		}
+		n++
 		if c == 0 {
 			if ix.LogSkip {
 				log.Printf("%s: contains NUL, ignoring\n", name)
 			}
 			return nil
 		}
-		if !validUTF8((tv>>8)&0xFF, tv&0xFF) {
-			if ix.LogSkip {
-				log.Printf("%s: invalid UTF-8, ignoring\n", name)
+		pairValid := validUTF8((tv>>8)&0xFF, tv&0xFF)
+		if !pairValid {
+			invalidUTF8++
+			if ix.invalidUTF8TooHigh(name, size, n, invalidUTF8) {
+				return nil
 			}
-			return nil
+		}
+		if n >= 3 && pairValid && prevPairValid {
+			ix.trigram.Add(tv)
 		}
 		if n > ix.MaxFileLen {
 			if ix.LogSkip {
@@ -278,6 +302,10 @@ func (ix *IndexWriter) add(name string, f io.Reader) error {
 		if c == '\n' {
 			linelen = 0
 		}
+		prevPairValid = pairValid
+	}
+	if size < 0 && ix.invalidUTF8TooHigh(name, n, n, invalidUTF8) {
+		return nil
 	}
 	if ix.trigram.Len() > ix.MaxTextTrigrams {
 		if ix.LogSkip {
@@ -299,6 +327,41 @@ func (ix *IndexWriter) add(name string, f io.Reader) error {
 		ix.post = append(ix.post, makePostEntry(trigram, fileid))
 	}
 	return nil
+}
+
+func (ix *IndexWriter) tooLong(name string, size int64) bool {
+	if size >= 0 && size > ix.MaxFileLen {
+		if ix.LogSkip {
+			log.Printf("%s: too long (> %d bytes), ignoring\n", name, ix.MaxFileLen)
+		}
+		return true
+	}
+	return false
+}
+
+func (ix *IndexWriter) invalidUTF8TooHigh(name string, size, n, invalid int64) bool {
+	if invalid == 0 {
+		return false
+	}
+	if ix.MaxInvalidUTF8Ratio <= 0 {
+		if ix.LogSkip {
+			log.Printf("%s: invalid UTF-8, ignoring\n", name)
+		}
+		return true
+	}
+	if size <= 0 {
+		size = n
+	}
+	if size <= 0 {
+		return false
+	}
+	if float64(invalid)/float64(size) <= ix.MaxInvalidUTF8Ratio {
+		return false
+	}
+	if ix.LogSkip {
+		log.Printf("%s: invalid UTF-8 ratio too high (%d/%d > %g), ignoring\n", name, invalid, size, ix.MaxInvalidUTF8Ratio)
+	}
+	return true
 }
 
 // Flush flushes the index entry to the target file.

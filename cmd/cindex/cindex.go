@@ -55,6 +55,10 @@ By default cindex skips hidden dot-files and dot-directories. The -includehidden
 flag indexes hidden source files while still skipping VCS directories, backup
 names, and explicit exclusions.
 
+By default cindex skips files containing invalid UTF-8. The
+-maxinvalidutf8ratio flag permits a limited ratio of invalid UTF-8 byte pairs
+and indexes only trigrams that do not span invalid pairs.
+
 The -filelist flag names a file containing paths to index, one per line.
 
 By default cindex adds the named paths to the index but preserves
@@ -70,21 +74,22 @@ func usage() {
 }
 
 var (
-	listFlag          = flag.Bool("list", false, "list indexed paths and exit")
-	resetFlag         = flag.Bool("reset", false, "discard existing index")
-	verboseFlag       = flag.Bool("verbose", false, "print extra information")
-	cpuProfile        = flag.String("cpuprofile", "", "write cpu profile to this file")
-	checkFlag         = flag.Bool("check", false, "check index is well-formatted")
-	indexPath         = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
-	logSkipFlag       = flag.Bool("logskip", false, "log information about skipped files")
-	excludeFlag       = flag.String("exclude", "", "read file exclusion patterns from this file")
-	includeHiddenFlag = flag.Bool("includehidden", false, "index hidden files and directories except VCS directories")
-	fileList          = flag.String("filelist", "", "read paths to index from this file")
-	maxFileLen        = flag.Int64("maxfilelen", index.DefaultMaxFileLen, "skip files longer than this many bytes")
-	maxLineLen        = flag.Int("maxlinelen", index.DefaultMaxLineLen, "skip files with a line longer than this many bytes")
-	maxTrigrams       = flag.Int("maxtrigrams", index.DefaultMaxTextTrigrams, "skip files with more than this many distinct trigrams")
-	zipFlag           = flag.Bool("zip", false, "index content in zip files")
-	statsFlag         = flag.Bool("stats", false, "print index size statistics")
+	listFlag            = flag.Bool("list", false, "list indexed paths and exit")
+	resetFlag           = flag.Bool("reset", false, "discard existing index")
+	verboseFlag         = flag.Bool("verbose", false, "print extra information")
+	cpuProfile          = flag.String("cpuprofile", "", "write cpu profile to this file")
+	checkFlag           = flag.Bool("check", false, "check index is well-formatted")
+	indexPath           = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
+	logSkipFlag         = flag.Bool("logskip", false, "log information about skipped files")
+	excludeFlag         = flag.String("exclude", "", "read file exclusion patterns from this file")
+	includeHiddenFlag   = flag.Bool("includehidden", false, "index hidden files and directories except VCS directories")
+	fileList            = flag.String("filelist", "", "read paths to index from this file")
+	maxFileLen          = flag.Int64("maxfilelen", index.DefaultMaxFileLen, "skip files longer than this many bytes")
+	maxLineLen          = flag.Int("maxlinelen", index.DefaultMaxLineLen, "skip files with a line longer than this many bytes")
+	maxTrigrams         = flag.Int("maxtrigrams", index.DefaultMaxTextTrigrams, "skip files with more than this many distinct trigrams")
+	maxInvalidUTF8Ratio = flag.Float64("maxinvalidutf8ratio", index.DefaultMaxInvalidUTF8Ratio, "skip files with a higher invalid UTF-8 byte-pair ratio")
+	zipFlag             = flag.Bool("zip", false, "index content in zip files")
+	statsFlag           = flag.Bool("stats", false, "print index size statistics")
 
 	excludePatterns = []string{".csearchindex"}
 )
@@ -98,6 +103,9 @@ func main() {
 		if err := os.Setenv("CSEARCHINDEX", expandTilde(*indexPath)); err != nil {
 			log.Fatal(err)
 		}
+	}
+	if *maxInvalidUTF8Ratio < 0 {
+		log.Fatal("-maxinvalidutf8ratio must be non-negative")
 	}
 
 	if *listFlag {
@@ -183,6 +191,7 @@ func main() {
 	ix.MaxFileLen = *maxFileLen
 	ix.MaxLineLen = *maxLineLen
 	ix.MaxTextTrigrams = *maxTrigrams
+	ix.MaxInvalidUTF8Ratio = *maxInvalidUTF8Ratio
 	ix.AddRoots(roots)
 	for _, root := range roots {
 		log.Printf("index %s", root)

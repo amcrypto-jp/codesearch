@@ -266,6 +266,16 @@ func (f *stringFile) ModTime() time.Time { return time.Time{} }
 func (f *stringFile) IsDir() bool        { return false }
 func (f *stringFile) Sys() interface{}   { return nil }
 
+type countingFile struct {
+	stringFile
+	reads int
+}
+
+func (f *countingFile) Read(p []byte) (int, error) {
+	f.reads++
+	return f.Reader.Read(p)
+}
+
 func apply[In, Out any](f func(In) Out, xs []In) []Out {
 	var ys []Out
 	for _, x := range xs {
@@ -303,6 +313,69 @@ func buildFlushIndex(out string, roots []string, doFlush bool, fileData map[stri
 
 func buildIndex(name string, roots []string, fileData map[string]string) {
 	buildFlushIndex(name, roots, false, fileData)
+}
+
+func tempIndex(t *testing.T) string {
+	t.Helper()
+	f, err := os.CreateTemp("", "index-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.Remove(name)
+	})
+	return name
+}
+
+func TestAddPrechecksFileSize(t *testing.T) {
+	out := tempIndex(t)
+	ix := Create(out)
+	ix.MaxFileLen = 3
+
+	file := &countingFile{
+		stringFile: stringFile{
+			Reader: strings.NewReader("abcd"),
+			name:   "too-long",
+			size:   4,
+		},
+	}
+	if err := ix.Add("too-long", file); err != nil {
+		t.Fatal(err)
+	}
+	if file.reads != 0 {
+		t.Fatalf("Add read oversized file %d times", file.reads)
+	}
+	ix.Flush()
+}
+
+func TestAddInvalidUTF8Tolerance(t *testing.T) {
+	old := writeVersion
+	defer func() {
+		writeVersion = old
+	}()
+	writeVersion = 2
+
+	out := tempIndex(t)
+	ix := Create(out)
+	ix.MaxInvalidUTF8Ratio = 0.5
+	if err := ix.Add("bad", &stringFile{
+		Reader: strings.NewReader("ab\xffcde"),
+		name:   "bad",
+		size:   int64(len("ab\xffcde")),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ix.Flush()
+
+	got := Open(out)
+	defer got.Close()
+	checkFiles(t, got, "bad")
+	checkPosting(t, got, "cde", 0)
+	checkPosting(t, got, "b\xffc")
 }
 
 func testTrivialWrite(t *testing.T, doFlush bool) {
