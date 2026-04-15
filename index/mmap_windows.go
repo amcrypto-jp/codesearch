@@ -21,7 +21,7 @@ func mmapFile(f *os.File) mmapData {
 		log.Fatalf("%s: too large for mmap", f.Name())
 	}
 	if size == 0 {
-		return mmapData{f, nil}
+		return mmapData{f: f}
 	}
 	h, err := syscall.CreateFileMapping(syscall.Handle(f.Fd()), nil, syscall.PAGE_READONLY, uint32(size>>32), uint32(size), nil)
 	if err != nil {
@@ -33,5 +33,24 @@ func mmapFile(f *os.File) mmapData {
 		log.Fatalf("MapViewOfFile %s: %v", f.Name(), err)
 	}
 	data := (*[1 << 30]byte)(unsafe.Pointer(addr))
-	return mmapData{f, data[:size]}
+	return mmapData{f: f, d: data[:size], raw: data[:size], h: uintptr(h)}
+}
+
+func unmmapFile(mm *mmapData) error {
+	var err error
+	if len(mm.d) > 0 {
+		err = syscall.UnmapViewOfFile(uintptr(unsafe.Pointer(&mm.d[0])))
+	}
+	if mm.h != 0 {
+		if e := syscall.CloseHandle(syscall.Handle(mm.h)); err == nil {
+			err = e
+		}
+	}
+	if mm.f != nil {
+		if e := mm.f.Close(); err == nil {
+			err = e
+		}
+	}
+	*mm = mmapData{}
+	return err
 }

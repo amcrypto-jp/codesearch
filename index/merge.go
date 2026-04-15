@@ -50,7 +50,9 @@ var writeVersion = 2
 // for a path, src2 is assumed to be newer and is given preference.
 func Merge(dst, src1, src2 string) {
 	ix1 := Open(src1)
+	defer ix1.Close()
 	ix2 := Open(src2)
+	defer ix2.Close()
 
 	// Build fileid maps.
 	var i1, i2, new int
@@ -275,10 +277,10 @@ func Merge(dst, src1, src2 string) {
 	} else {
 		ix.WriteString(trailerMagicV2)
 	}
-	ix.Flush()
+	ix.Close()
 
-	os.Remove(nameIndexFile.name)
-	os.Remove(w.postIndexFile.name)
+	removeTemp(nameIndexFile.name)
+	removeTemp(w.postIndexFile.name)
 }
 
 type postMapReader struct {

@@ -352,10 +352,14 @@ func (ix *IndexWriter) Flush() {
 		ix.main.WriteString(trailerMagicV2)
 	}
 
-	os.Remove(ix.nameData.name)
-	os.Remove(ix.postFile.name)
-	os.Remove(ix.nameIndex.name)
-	os.Remove(ix.postIndex.name)
+	ix.nameData.Close()
+	ix.postFile.Close()
+	ix.nameIndex.Close()
+	ix.postIndex.Close()
+	removeTemp(ix.nameData.name)
+	removeTemp(ix.postFile.name)
+	removeTemp(ix.nameIndex.name)
+	removeTemp(ix.postIndex.name)
 
 	log.Printf("%d data bytes, %d index bytes", ix.totalBytes, ix.main.Offset())
 
@@ -364,11 +368,22 @@ func (ix *IndexWriter) Flush() {
 
 func copyFile(dst, src *Buffer) {
 	dst.Flush()
-	n, err := io.Copy(dst.file, src.finish())
+	f := src.finish()
+	n, err := io.Copy(dst.file, f)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	src.file = nil
 	if err != nil {
 		log.Fatalf("copying %s to %s: %v", src.name, dst.name, err)
 	}
 	dst.fileOff += n
+}
+
+func removeTemp(name string) {
+	if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+		log.Fatalf("removing temporary file %s: %v", name, err)
+	}
 }
 
 // addName adds the file with the given name to the index.
@@ -427,6 +442,7 @@ func (ix *IndexWriter) flushPost() {
 // into posting lists, writing the resulting lists to out.
 func (ix *IndexWriter) mergePost(out *Buffer) {
 	var h postHeap
+	defer h.close()
 
 	if len(ix.postEnds) > 0 {
 		log.Printf("merge mem + %d MB disk", ix.postEnds[len(ix.postEnds)-1]>>20)
@@ -465,18 +481,30 @@ const postBuf = 4096
 
 // A postHeap is a heap (priority queue) of postChunks.
 type postHeap struct {
-	ch []*postChunk
+	ch   []*postChunk
+	maps []mmapData
 }
 
 func (h *postHeap) addFile(w *Buffer, ends []int) {
 	w.Flush()
-	data := mmapFile(w.file).d
+	mm := mmapFile(w.file)
+	w.file = nil
+	h.maps = append(h.maps, mm)
+	data := mm.d
 	start := 0
 	for _, end := range ends {
 		var r allPostReader
 		r.init(&Index{version: writeVersion, name: w.name}, data[start:end])
 		h.add(r.next)
 		start = end
+	}
+}
+
+func (h *postHeap) close() {
+	for i := range h.maps {
+		if err := unmmapFile(&h.maps[i]); err != nil {
+			log.Fatalf("unmapping temporary posting data: %v", err)
+		}
 	}
 }
 
@@ -681,6 +709,17 @@ func (b *Buffer) Flush() {
 	}
 	b.fileOff += int64(len(b.buf))
 	b.buf = b.buf[:0]
+}
+
+func (b *Buffer) Close() {
+	if b == nil || b.file == nil {
+		return
+	}
+	b.Flush()
+	if err := b.file.Close(); err != nil {
+		log.Fatalf("closing %s: %v", b.name, err)
+	}
+	b.file = nil
 }
 
 // finish flushes the file to disk and returns an open file ready for reading.
