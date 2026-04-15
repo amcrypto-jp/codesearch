@@ -97,6 +97,7 @@ func main() {
 
 	if *listFlag {
 		ix := index.Open(index.File())
+		defer ix.Close()
 		if *checkFlag {
 			if err := ix.Check(); err != nil {
 				log.Fatal(err)
@@ -134,6 +135,9 @@ func main() {
 	if len(args) == 0 {
 		ix := index.Open(index.File())
 		roots = slices.Collect(ix.Roots().All())
+		if err := ix.Close(); err != nil {
+			log.Fatal(err)
+		}
 	} else {
 		// Translate arguments to absolute paths so that
 		// we can generate the file list in sorted order.
@@ -159,6 +163,9 @@ func main() {
 		if *checkFlag {
 			ix := index.Open(master)
 			if err := ix.Check(); err != nil {
+				log.Fatal(err)
+			}
+			if err := ix.Close(); err != nil {
 				log.Fatal(err)
 			}
 		}
@@ -217,13 +224,22 @@ func main() {
 			if err := ix.Check(); err != nil {
 				log.Fatal(err)
 			}
+			if err := ix.Close(); err != nil {
+				log.Fatal(err)
+			}
 		}
-		os.Remove(file)
-		os.Rename(file+"~", master)
+		removeIndex(file)
+		removeIndex(master)
+		if err := os.Rename(file+"~", master); err != nil {
+			log.Fatalf("failed to merge indexes: %v", err)
+		}
 	} else {
 		if *checkFlag {
 			ix := index.Open(file)
 			if err := ix.Check(); err != nil {
+				log.Fatal(err)
+			}
+			if err := ix.Close(); err != nil {
 				log.Fatal(err)
 			}
 		}
@@ -233,9 +249,16 @@ func main() {
 
 	if *statsFlag {
 		ix := index.Open(master)
+		defer ix.Close()
 		ix.PrintStats()
 	}
 	return
+}
+
+func removeIndex(name string) {
+	if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+		log.Fatalf("removing %s: %v", name, err)
+	}
 }
 
 func expandTilde(name string) string {

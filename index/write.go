@@ -370,7 +370,7 @@ func (ix *IndexWriter) Flush() {
 
 	log.Printf("%d data bytes, %d index bytes", ix.totalBytes, ix.main.Offset())
 
-	ix.main.Flush()
+	ix.main.Close()
 }
 
 func copyFile(dst, src *Buffer) {
