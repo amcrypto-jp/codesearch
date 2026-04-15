@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path"
+	"path/filepath"
 	"runtime/pprof"
 	"strings"
 
@@ -18,7 +20,7 @@ import (
 	"github.com/google/codesearch/regexp"
 )
 
-var usageMessage = `usage: csearch [-c] [-f fileregexp] [-h] [-i] [-l [-0]] [-n] regexp
+var usageMessage = `usage: csearch [-c] [-f fileregexp] [-h] [-i] [-l [-0]] [-n] [options] regexp
 
 Csearch behaves like grep over all indexed files, searching for regexp,
 an RE2 (nearly PCRE) regular expression.
@@ -29,6 +31,11 @@ cannot be abbreviated to -in.
 
 The -f flag restricts the search to files whose names match the RE2 regular
 expression fileregexp.
+
+The -all flag searches all regular files under the indexed roots after the
+indexed search, so new or changed files not represented in the index are not
+missed. The -exclude flag names a file containing filepath patterns, one per
+line, to exclude during the -all walk.
 
 Csearch relies on the existence of an up-to-date index created ahead of time.
 To build or rebuild the index that csearch uses, run:
@@ -55,12 +62,16 @@ var (
 	htmlFlag    = flag.Bool("html", false, "print HTML output")
 	verboseFlag = flag.Bool("verbose", false, "print extra information")
 	bruteFlag   = flag.Bool("brute", false, "brute force - search all files in index")
+	allFlag     = flag.Bool("all", false, "also search regular files under indexed roots")
+	excludeFlag = flag.String("exclude", "", "read -all file exclusion patterns from this file")
 	cpuProfile  = flag.String("cpuprofile", "", "write cpu profile to this file")
 	indexPath   = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
 	maxCount    = flag.Int("m", 0, "stop after this many matches")
 	maxPerFile  = flag.Int("M", 0, "stop after this many matches in each file")
 
 	matches bool
+
+	excludePatterns []string
 )
 
 func Main() {
@@ -122,6 +133,7 @@ func Main() {
 	}
 
 	ix := index.Open(index.File())
+	defer ix.Close()
 	ix.Verbose = *verboseFlag
 	var post []int
 	if *bruteFlag {
@@ -156,8 +168,10 @@ func Main() {
 		zipMap    map[string]*zip.File
 	)
 
+	seen := make(map[string]bool, len(post))
 	for _, fileid := range post {
 		name := ix.Name(fileid).String()
+		seen[seenName(name)] = true
 		if g.L && (pat == "(?m)" || pat == "(?i)(?m)") {
 			g.Reader(bytes.NewReader(nil), name)
 			if g.Done {
@@ -208,8 +222,115 @@ func Main() {
 			break
 		}
 	}
+	if *allFlag && !g.Done {
+		if *excludeFlag != "" {
+			excludePatterns = readListFile(*excludeFlag)
+		}
+		for root := range ix.Roots().All() {
+			walkAll(root.String(), seen, fre, &g)
+			if g.Done {
+				break
+			}
+		}
+	}
 
 	matches = g.Match
+}
+
+func seenName(name string) string {
+	if strings.Contains(name, "\x01") {
+		return name
+	}
+	return filepath.Clean(name)
+}
+
+func walkAll(root string, seen map[string]bool, fre *regexp.Regexp, g *regexp.Grep) {
+	err := filepath.Walk(root, func(file string, info os.FileInfo, err error) error {
+		if g.Done {
+			return filepath.SkipAll
+		}
+		if err != nil {
+			if *verboseFlag {
+				log.Printf("%s: %v", file, err)
+			}
+			return nil
+		}
+		if info == nil {
+			return nil
+		}
+		if _, elem := filepath.Split(file); elem != "" {
+			if isExcluded(file, elem) || isTemporaryName(elem) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+		if info.Mode()&os.ModeType != 0 {
+			return nil
+		}
+		name := filepath.Clean(file)
+		if seen[name] {
+			return nil
+		}
+		seen[name] = true
+		if fre != nil && fre.MatchString(name, true, true) < 0 {
+			return nil
+		}
+		g.File(name)
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func isTemporaryName(elem string) bool {
+	return elem[0] == '.' || elem[0] == '#' || elem[0] == '~' || elem[len(elem)-1] == '~'
+}
+
+func readListFile(name string) []string {
+	name = expandTilde(name)
+	data, err := os.ReadFile(name)
+	if err != nil {
+		log.Fatal(err)
+	}
+	var list []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		list = append(list, line)
+	}
+	return list
+}
+
+func expandTilde(name string) string {
+	if len(name) >= 2 && name[0] == '~' && (name[1] == '/' || name[1] == '\\') {
+		return filepath.Join(index.HomeDir(), name[2:])
+	}
+	return name
+}
+
+func isExcluded(file, elem string) bool {
+	slashFile := filepath.ToSlash(file)
+	for _, pattern := range excludePatterns {
+		if ok, err := filepath.Match(pattern, elem); err != nil {
+			log.Fatal(err)
+		} else if ok {
+			return true
+		}
+		if strings.Contains(pattern, "/") || strings.Contains(pattern, string(filepath.Separator)) {
+			pattern = filepath.ToSlash(pattern)
+			if ok, err := path.Match(strings.TrimPrefix(pattern, "./"), strings.TrimPrefix(slashFile, "./")); err != nil {
+				log.Fatal(err)
+			} else if ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func main() {
