@@ -668,6 +668,19 @@ func mmap(file string) mmapData {
 // TODO look in parent directories for index
 // TODO cindex -init
 
+// HomeDir returns the home directory used for the default index path.
+func HomeDir() string {
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		return home
+	}
+	home = os.Getenv("HOME")
+	if runtime.GOOS == "windows" && home == "" {
+		home = os.Getenv("USERPROFILE")
+	}
+	return home
+}
+
 // File returns the name of the index file to use.
 // It is either $CSEARCHINDEX or $HOME/.csearchindex.
 func File() string {
@@ -675,10 +688,5 @@ func File() string {
 	if f != "" {
 		return f
 	}
-	var home string
-	home = os.Getenv("HOME")
-	if runtime.GOOS == "windows" && home == "" {
-		home = os.Getenv("USERPROFILE")
-	}
-	return filepath.Clean(home + "/.csearchindex")
+	return filepath.Join(HomeDir(), ".csearchindex")
 }

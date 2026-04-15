@@ -40,7 +40,8 @@ If no index exists, this command creates one.  If an index already exists, cinde
 overwrites it.  Run cindex -help for more.
 
 Csearch uses the index stored in $CSEARCHINDEX or, if that variable is unset or
-empty, $HOME/.csearchindex.
+empty, $HOME/.csearchindex. The -indexpath flag uses a specific index file
+instead.
 `
 
 func usage() {
@@ -55,6 +56,7 @@ var (
 	verboseFlag = flag.Bool("verbose", false, "print extra information")
 	bruteFlag   = flag.Bool("brute", false, "brute force - search all files in index")
 	cpuProfile  = flag.String("cpuprofile", "", "write cpu profile to this file")
+	indexPath   = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
 
 	matches bool
 )
@@ -86,6 +88,12 @@ func Main() {
 		defer f.Close()
 		pprof.StartCPUProfile(f)
 		defer pprof.StopCPUProfile()
+	}
+
+	if *indexPath != "" {
+		if err := os.Setenv("CSEARCHINDEX", *indexPath); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 	pat := "(?m)" + args[0]

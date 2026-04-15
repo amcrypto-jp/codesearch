@@ -41,6 +41,10 @@ type IndexWriter struct {
 	Verbose bool // log status using package log
 	Zip     bool // index content of zip files
 
+	MaxFileLen      int64
+	MaxLineLen      int
+	MaxTextTrigrams int
+
 	trigram *sparse.Set // trigrams for the current file
 	buf     [32]byte    // scratch buffer
 
@@ -79,6 +83,9 @@ func Create(file string) *IndexWriter {
 		inbuf:     make([]byte, 1<<20),
 	}
 	ix.names = NewPathWriter(ix.nameData, ix.nameIndex, writeVersion, nameGroupSize)
+	ix.MaxFileLen = DefaultMaxFileLen
+	ix.MaxLineLen = DefaultMaxLineLen
+	ix.MaxTextTrigrams = DefaultMaxTextTrigrams
 	return ix
 }
 
@@ -129,9 +136,9 @@ func makePostEntry(trigram uint32, fileid int) postEntry {
 // bytes, if it contains a line longer than maxLineLen bytes,
 // or if it contains more than maxTextTrigrams distinct trigrams.
 const (
-	maxFileLen      = 1 << 30
-	maxLineLen      = 2000
-	maxTextTrigrams = 20000
+	DefaultMaxFileLen      = 1 << 30
+	DefaultMaxLineLen      = 2000
+	DefaultMaxTextTrigrams = 20000
 )
 
 // AddRoots adds the given roots to the index's list of roots.
@@ -256,15 +263,15 @@ func (ix *IndexWriter) add(name string, f io.Reader) error {
 			}
 			return nil
 		}
-		if n > maxFileLen {
+		if n > ix.MaxFileLen {
 			if ix.LogSkip {
-				log.Printf("%s: too long, ignoring\n", name)
+				log.Printf("%s: too long (> %d bytes), ignoring\n", name, ix.MaxFileLen)
 			}
 			return nil
 		}
-		if linelen++; linelen > maxLineLen {
+		if linelen++; linelen > ix.MaxLineLen {
 			if ix.LogSkip {
-				log.Printf("%s: very long lines, ignoring\n", name)
+				log.Printf("%s: very long lines (> %d bytes), ignoring\n", name, ix.MaxLineLen)
 			}
 			return nil
 		}
@@ -272,9 +279,9 @@ func (ix *IndexWriter) add(name string, f io.Reader) error {
 			linelen = 0
 		}
 	}
-	if ix.trigram.Len() > maxTextTrigrams {
+	if ix.trigram.Len() > ix.MaxTextTrigrams {
 		if ix.LogSkip {
-			log.Printf("%s: too many trigrams, probably not text, ignoring\n", name)
+			log.Printf("%s: too many trigrams (> %d), probably not text, ignoring\n", name, ix.MaxTextTrigrams)
 		}
 		return nil
 	}
