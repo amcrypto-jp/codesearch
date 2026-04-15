@@ -16,13 +16,22 @@ import (
 
 var usageMessage = `usage: cgrep [-c] [-h] [-i] [-l [-0]] [-n] [-v] regexp [file...]
 
-Cgrep behaves like grep, searching for regexp, an RE2 (nearly PCRE) regular expression.
+cgrep behaves like grep, searching for regexp, an RE2 regular expression.
 
-The -c, -h, -i, -l, -n, and -v flags are as in grep, although note that as per Go's
-flag parsing convention, they cannot be combined: the option pair -i -n
-cannot be abbreviated to -in.
+Options:
 
-The -0 flag changes -l output to use NUL separators.
+  -c           print only a count of selected lines
+  -h           suppress the file name prefix on output
+  -i           case-insensitive search
+  -l           print only the names of files containing matches
+  -0           with -l, print NUL-separated file names
+  -n           print line numbers
+  -v           print lines that do not match
+  -cpuprofile FILE
+               write CPU profile to FILE
+
+As per Go's flag parsing convention, options cannot be combined: -i -n cannot
+be abbreviated to -in.
 `
 
 func usage() {

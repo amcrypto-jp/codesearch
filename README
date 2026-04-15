@@ -24,11 +24,17 @@ Useful additions in this fork:
   select an index file without changing $CSEARCHINDEX.
 * cindex -exclude FILE reads file and directory exclusion patterns.
 * cindex -filelist FILE reads paths to index from a file, one per line.
+* cindex -includehidden indexes hidden dot-files and dot-directories, while
+  still skipping VCS directories and backup names.
+* cindex -follow-symlinks follows symlinked files and directories under their
+  symlink paths.
 * cindex -logskip logs why files were skipped.
-* cindex -maxfilelen, -maxlinelen, and -maxtrigrams tune text-file detection.
+* cindex -maxfilelen, -maxlinelen, -maxtrigrams, and -maxinvalidutf8ratio tune
+  text-file detection.
 * csearch -all also searches regular files under indexed roots that are not
   represented in the index.
 * csearch -exclude FILE excludes patterns during -all searches.
+* csearch -includehidden includes hidden files during -all searches.
 * csearch -m and -M limit total matches and matches per file.
 * csearch -l -0 and cgrep -l -0 print NUL-separated file names.
 
@@ -48,3 +54,7 @@ For background and an overview of the original commands, see:
 	http://swtch.com/~rsc/regexp/regexp4.html
 
 Original Code Search was written by Russ Cox.
+
+This fork includes fixes and command-line features derived from long-running
+community forks, including work by Manpreet Singh, Patrick Mezard,
+Benoit Mortgat, and Macoy Madson.
