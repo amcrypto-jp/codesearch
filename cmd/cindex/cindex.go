@@ -135,6 +135,7 @@ func main() {
 
 	ix := index.Create(file)
 	ix.Verbose = *verboseFlag
+	ix.LogSkip = *verboseFlag
 	ix.Zip = *zipFlag
 	ix.AddRoots(roots)
 	for _, root := range roots {
