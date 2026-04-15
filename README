@@ -2,6 +2,7 @@ Code Search
 ===========
 
 Source: https://github.com/amcrypto-jp/codesearch
+Website: https://amcrypto-jp.github.io/codesearch/
 
 Code Search indexes source trees and searches them with RE2 regular
 expressions. This fork keeps the abandoned original command-line tools usable on

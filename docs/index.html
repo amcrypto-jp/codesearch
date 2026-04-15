@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Code Search</title>
+  <meta name="description" content="Documentation for the amcrypto-jp Code Search fork.">
+  <meta name="author" content="Mounir IDRASSI">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Code Search home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5z"/></svg>
+      Code Search
+    </a>
+    <button class="menu-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="site-nav">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <nav id="site-nav" aria-label="Primary navigation">
+      <a href="#quick-start">Quick Start</a>
+      <a href="#commands">Commands</a>
+      <a href="#patterns">Patterns</a>
+      <a href="#history">History</a>
+      <a href="https://github.com/amcrypto-jp/codesearch">GitHub</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="intro" aria-labelledby="intro-title">
+      <div class="intro-copy">
+        <p class="eyebrow">github.com/amcrypto-jp/codesearch</p>
+        <h1 id="intro-title">Indexed source search with RE2 regular expressions.</h1>
+        <p class="lede">
+          This fork keeps the original Code Search command-line tools usable on
+          current Go releases and adds practical indexing, Windows, and search
+          workflow fixes.
+        </p>
+        <div class="actions" aria-label="Project links">
+          <a class="button primary" href="#quick-start">Start Using It</a>
+          <a class="button secondary" href="https://github.com/amcrypto-jp/codesearch">View Source</a>
+        </div>
+      </div>
+      <div class="quick-panel" id="quick-start" aria-label="Quick start commands">
+        <h2>Quick Start</h2>
+        <div class="code-block-wrapper">
+          <button class="copy-btn" aria-label="Copy code to clipboard">Copy</button>
+          <pre><code>git clone https://github.com/amcrypto-jp/codesearch
+cd codesearch
+go install ./cmd/...
+
+cindex ~/src/project
+csearch 'func main'</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="band summary" aria-labelledby="summary-title">
+      <div class="reveal">
+        <h2 id="summary-title">What This Fork Adds</h2>
+        <p>
+          The module path stays compatible with the original codebase, while the
+          repository URL and documentation now point at the maintained fork.
+        </p>
+      </div>
+      <ul class="feature-grid">
+        <li class="reveal">Windows-safe index replacement and mmap cleanup</li>
+        <li class="reveal reveal-delay-1">Reentrant posting-list sorting</li>
+        <li class="reveal reveal-delay-2">Configurable index paths for command-line and web tools</li>
+        <li class="reveal">Hidden-file, symlink, ZIP, exclusion, and file-list controls</li>
+        <li class="reveal reveal-delay-1">Search limits, NUL-separated file output, and unindexed-file search</li>
+        <li class="reveal reveal-delay-2">Strict-by-default invalid UTF-8 handling with opt-in tolerance</li>
+      </ul>
+    </section>
+
+    <section class="content-section" aria-labelledby="how-title">
+      <div class="section-heading reveal">
+        <p class="eyebrow">How It Works</p>
+        <h2 id="how-title">Build once, search repeatedly.</h2>
+        <p>
+          `cindex` records roots and trigram postings. `csearch` uses the index
+          to identify candidate files, then opens those files to verify the RE2
+          match. `csweb` reads the same index for browser-based exploration.
+        </p>
+      </div>
+      <figure class="flow-figure reveal">
+        <img src="assets/code-search-flow.png" alt="cindex builds a trigram index that csearch and csweb query.">
+        <figcaption>Indexing and search flow used by the command-line and web tools.</figcaption>
+      </figure>
+    </section>
+
+    <section class="content-section" id="commands" aria-labelledby="commands-title">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Command Reference</p>
+        <h2 id="commands-title">Four tools, one index.</h2>
+        <p>
+          The default index file is `$CSEARCHINDEX`, or `$HOME/.csearchindex`
+          when `$CSEARCHINDEX` is unset. `cindex`, `csearch`, and `csweb` also
+          accept `-indexpath FILE`.
+        </p>
+      </div>
+
+      <div class="command-list">
+        <article class="command-item reveal">
+          <h3>cindex</h3>
+          <p>Creates or updates the trigram index.</p>
+          <pre><code>cindex [options] [path...]</code></pre>
+          <ul>
+            <li><code>-reset</code> discards the existing index.</li>
+            <li><code>-list</code> prints indexed roots.</li>
+            <li><code>-check</code> validates the index format.</li>
+            <li><code>-exclude FILE</code> reads exclusion patterns.</li>
+            <li><code>-filelist FILE</code> reads paths to index, one per line.</li>
+            <li><code>-includehidden</code> indexes dot-files and dot-directories except VCS directories.</li>
+            <li><code>-follow-symlinks</code> follows symlinked files and directories under their symlink paths.</li>
+            <li><code>-zip</code> indexes content inside ZIP files.</li>
+            <li><code>-logskip</code> logs why files are skipped.</li>
+            <li><code>-stats</code> prints index size statistics.</li>
+          </ul>
+        </article>
+
+        <article class="command-item reveal reveal-delay-1">
+          <h3>csearch</h3>
+          <p>Searches indexed files and verifies matches against file contents.</p>
+          <pre><code>csearch [options] regexp</code></pre>
+          <ul>
+            <li><code>-f REGEXP</code> searches only matching file names.</li>
+            <li><code>-i</code> performs case-insensitive search.</li>
+            <li><code>-n</code> prints line numbers.</li>
+            <li><code>-l -0</code> prints matching file names separated by NUL bytes.</li>
+            <li><code>-B N</code>, <code>-A N</code>, and <code>-C N</code> print context.</li>
+            <li><code>-m N</code> stops after N total matches.</li>
+            <li><code>-M N</code> stops after N matches per file.</li>
+            <li><code>-brute</code> searches every indexed file.</li>
+            <li><code>-all</code> also walks indexed roots to search unindexed regular files.</li>
+            <li><code>-includehidden</code> includes hidden files during <code>-all</code> searches.</li>
+          </ul>
+        </article>
+
+        <article class="command-item reveal">
+          <h3>cgrep</h3>
+          <p>Greps explicit files or standard input with the same regexp engine.</p>
+          <pre><code>cgrep [options] regexp [file...]</code></pre>
+          <ul>
+            <li><code>-i</code> performs case-insensitive search.</li>
+            <li><code>-n</code> prints line numbers.</li>
+            <li><code>-h</code> suppresses file name prefixes.</li>
+            <li><code>-l -0</code> prints matching file names separated by NUL bytes.</li>
+            <li><code>-c</code> prints match counts.</li>
+            <li><code>-v</code> prints non-matching lines.</li>
+            <li><code>-B N</code>, <code>-A N</code>, and <code>-C N</code> print context.</li>
+          </ul>
+        </article>
+
+        <article class="command-item reveal reveal-delay-1">
+          <h3>csweb</h3>
+          <p>Starts a local web UI backed by the same index file.</p>
+          <div class="code-block-wrapper">
+            <button class="copy-btn" aria-label="Copy code to clipboard">Copy</button>
+            <pre><code>csweb -indexpath /tmp/project.index</code></pre>
+          </div>
+          <p>Open <code>http://localhost:2473</code> after the server starts.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="band" aria-labelledby="tuning-title">
+      <div class="two-column">
+        <div class="reveal">
+          <h2 id="tuning-title">Text Detection</h2>
+          <p>
+            By default `cindex` skips hidden paths, backup names, VCS
+            directories, symlinks, binary files, invalid UTF-8, very long files,
+            very long lines, and files with too many distinct trigrams.
+          </p>
+        </div>
+        <ul class="plain-list reveal reveal-delay-1">
+          <li><code>-maxfilelen N</code> skips files larger than N bytes.</li>
+          <li><code>-maxlinelen N</code> skips files with a line longer than N bytes.</li>
+          <li><code>-maxtrigrams N</code> skips files with more than N distinct trigrams.</li>
+          <li><code>-maxinvalidutf8ratio R</code> permits a limited invalid UTF-8 byte-pair ratio.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="content-section" id="patterns" aria-labelledby="patterns-title">
+      <div class="section-heading reveal">
+        <p class="eyebrow">Pattern Files</p>
+        <h2 id="patterns-title">Share exclusions across indexing and search.</h2>
+        <p>
+          Pattern files used by `-exclude` contain one filepath pattern per line.
+          Blank lines and lines beginning with `#` are ignored.
+        </p>
+      </div>
+      <div class="example-row reveal">
+        <div class="code-block-wrapper">
+          <button class="copy-btn" aria-label="Copy code to clipboard">Copy</button>
+          <pre><code>vendor
+*.min.js
+generated/*
+third_party/*</code></pre>
+        </div>
+        <p>
+          Patterns without path separators match a file or directory base name.
+          Patterns containing path separators match the slash-separated path.
+        </p>
+      </div>
+    </section>
+
+    <section class="content-section" id="history" aria-labelledby="history-title">
+      <div class="section-heading reveal">
+        <p class="eyebrow">History</p>
+        <h2 id="history-title">Original design and community fixes.</h2>
+      </div>
+      <div class="history-text reveal">
+        <p>
+          Original Code Search was written by Russ Cox. For historical context
+          and the original implementation notes, read
+          <a href="http://swtch.com/~rsc/regexp/regexp4.html">Regular Expression Matching with a Trigram Index</a>.
+        </p>
+        <p>
+          This fork includes fixes and command-line features derived from
+          long-running community forks, including work by Manpreet Singh,
+          Patrick Mezard, Benoit Mortgat, and Macoy Madson.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <p>Code Search fork maintained at <a href="https://github.com/amcrypto-jp/codesearch">github.com/amcrypto-jp/codesearch</a>.</p>
+      <p class="credit">A fork by <a href="https://amcrypto.jp" rel="author">Mounir IDRASSI</a>.</p>
+    </div>
+  </footer>
+
+  <button class="scroll-top" aria-label="Scroll to top">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+  </button>
+
+  <script src="scripts.js"></script>
+</body>
+</html>
