@@ -1,14 +1,49 @@
 Code Search
 ===========
 
+Source: https://github.com/amcrypto-jp/codesearch
+
 Code Search indexes source trees and searches them with RE2 regular
-expressions. This fork keeps the current Google codebase usable and adds
-practical command-line features from maintained forks.
+expressions. This fork keeps the abandoned original command-line tools usable on
+current Go releases and adds practical fixes from maintained community forks.
+
+The tools are optimized for source code: `cindex` builds a trigram index,
+`csearch` uses that index to find likely files before verifying matches, `cgrep`
+greps explicit files or standard input, and `csweb` provides a local web UI.
 
 Install
 -------
 
-	go install github.com/google/codesearch/cmd/...@latest
+Install from a clone of this fork:
+
+	git clone https://github.com/amcrypto-jp/codesearch
+	cd codesearch
+	go install ./cmd/...
+
+The module path is intentionally kept compatible with the original codebase, so
+clone-based installation is the supported way to install this fork by URL.
+
+The repository currently targets Go 1.23 or newer.
+
+Quick Start
+-----------
+
+Build an index:
+
+	cindex ~/src/project
+
+Search the indexed files:
+
+	csearch 'func main'
+
+Reindex the same roots after files change:
+
+	cindex
+
+Use a specific index file without changing the environment:
+
+	cindex -indexpath /tmp/project.index ~/src/project
+	csearch -indexpath /tmp/project.index 'TODO|FIXME'
 
 Commands
 --------
@@ -18,43 +53,132 @@ Commands
 	cgrep [options] regexp [file...]
 	csweb [options]
 
-Useful additions in this fork:
+The default index file is `$CSEARCHINDEX`, or `$HOME/.csearchindex` when
+`$CSEARCHINDEX` is unset. `cindex`, `csearch`, and `csweb` also accept
+`-indexpath FILE`.
 
-* cindex -indexpath FILE, csearch -indexpath FILE, and csweb -indexpath FILE
-  select an index file without changing $CSEARCHINDEX.
-* cindex -exclude FILE reads file and directory exclusion patterns.
-* cindex -filelist FILE reads paths to index from a file, one per line.
-* cindex -includehidden indexes hidden dot-files and dot-directories, while
-  still skipping VCS directories and backup names.
-* cindex -follow-symlinks follows symlinked files and directories under their
-  symlink paths.
-* cindex -logskip logs why files were skipped.
-* cindex -maxfilelen, -maxlinelen, -maxtrigrams, and -maxinvalidutf8ratio tune
-  text-file detection.
-* csearch -all also searches regular files under indexed roots that are not
-  represented in the index.
-* csearch -exclude FILE excludes patterns during -all searches.
-* csearch -includehidden includes hidden files during -all searches.
-* csearch -m and -M limit total matches and matches per file.
-* csearch -l -0 and cgrep -l -0 print NUL-separated file names.
+cindex
+------
+
+`cindex` creates or updates the trigram index.
+
+Common options:
+
+* `-reset` discards the existing index before indexing the supplied paths.
+* `-list` prints indexed roots.
+* `-check` validates the index format.
+* `-indexpath FILE` uses a specific index file.
+* `-exclude FILE` reads file and directory exclusion patterns.
+* `-filelist FILE` reads paths to index from a file, one per line.
+* `-includehidden` indexes hidden dot-files and dot-directories while still
+  skipping VCS directories and backup names.
+* `-follow-symlinks` follows symlinked files and directories and stores matches
+  under the symlink path.
+* `-zip` indexes content inside ZIP files.
+* `-logskip` logs why files are skipped.
+* `-stats` prints index size statistics.
+
+Text detection options:
+
+* `-maxfilelen N` skips files larger than `N` bytes.
+* `-maxlinelen N` skips files with a line longer than `N` bytes.
+* `-maxtrigrams N` skips files with more than `N` distinct trigrams.
+* `-maxinvalidutf8ratio R` permits a limited ratio of invalid UTF-8 byte pairs.
+  The default is `0`, which preserves strict invalid UTF-8 rejection.
+
+By default `cindex` skips hidden dot-files and dot-directories, backup names,
+VCS directories, symlinks, binary files, invalid UTF-8, very long files, very
+long lines, and files with too many distinct trigrams.
+
+csearch
+-------
+
+`csearch` searches indexed files. It first queries the trigram index, then opens
+the candidate files and verifies the regular expression match.
+
+Common options:
+
+* `-f REGEXP` searches only file names matching `REGEXP`.
+* `-i` performs case-insensitive search.
+* `-n` prints line numbers.
+* `-h` suppresses file name prefixes.
+* `-l` prints only matching file names.
+* `-l -0` prints matching file names separated by NUL bytes.
+* `-c` prints match counts.
+* `-B N`, `-A N`, and `-C N` print context before, after, or around matches.
+* `-m N` stops after `N` total matches.
+* `-M N` stops after `N` matches per file.
+* `-brute` searches every file in the index instead of using trigram filtering.
+* `-all` also walks indexed roots and searches regular files that are not in the
+  index, so newly created or changed files are not missed.
+* `-exclude FILE` excludes patterns during `-all` searches.
+* `-includehidden` includes hidden files during `-all` searches.
+* `-html` prints HTML output.
+
+`-M` is not meaningful with `-c` or `-l`. `-0` is only meaningful with `-l`.
+
+cgrep
+-----
+
+`cgrep` searches explicit files or standard input with the same regexp engine as
+`csearch`.
+
+Common options:
+
+* `-i` performs case-insensitive search.
+* `-n` prints line numbers.
+* `-h` suppresses file name prefixes.
+* `-l` prints only matching file names.
+* `-l -0` prints matching file names separated by NUL bytes.
+* `-c` prints match counts.
+* `-v` prints non-matching lines.
+* `-B N`, `-A N`, and `-C N` print context before, after, or around matches.
+
+csweb
+-----
+
+`csweb` starts a local web UI at:
+
+	http://localhost:2473
+
+It uses the same index file selection as `csearch`:
+
+	csweb -indexpath /tmp/project.index
 
 Pattern Files
 -------------
 
-Pattern files used by -exclude contain one filepath pattern per line. Blank
-lines and lines beginning with # are ignored. Patterns without path separators
-match a file or directory base name. Patterns containing path separators match
-the slash-separated path.
+Pattern files used by `-exclude` contain one filepath pattern per line. Blank
+lines and lines beginning with `#` are ignored.
 
-Background
-----------
+Patterns without path separators match a file or directory base name. Patterns
+containing path separators match the slash-separated path.
 
-For background and an overview of the original commands, see:
+Examples:
+
+	vendor
+	*.min.js
+	generated/*
+	third_party/*
+
+Notes
+-----
+
+This fork includes:
+
+* Windows-safe index finalization and mmap cleanup.
+* Reentrant posting-list sorting.
+* Configurable index path selection.
+* Configurable indexing limits and skip logging.
+* Hidden-file, symlink, exclusion-file, file-list, ZIP, and invalid UTF-8
+  controls.
+* Search result limits and NUL-separated file-list output.
+* Optional `csearch -all` walking to avoid missing unindexed files.
+
+For background on the original design, see:
 
 	http://swtch.com/~rsc/regexp/regexp4.html
 
-Original Code Search was written by Russ Cox.
-
-This fork includes fixes and command-line features derived from long-running
-community forks, including work by Manpreet Singh, Patrick Mezard,
-Benoit Mortgat, and Macoy Madson.
+Original Code Search was written by Russ Cox. This fork includes fixes and
+command-line features derived from long-running community forks, including work
+by Manpreet Singh, Patrick Mezard, Benoit Mortgat, and Macoy Madson.
