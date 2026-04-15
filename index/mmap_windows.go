@@ -7,6 +7,7 @@ package index
 import (
 	"log"
 	"os"
+	"reflect"
 	"syscall"
 	"unsafe"
 )
@@ -32,14 +33,18 @@ func mmapFile(f *os.File) mmapData {
 	if err != nil {
 		log.Fatalf("MapViewOfFile %s: %v", f.Name(), err)
 	}
-	data := (*[1 << 30]byte)(unsafe.Pointer(addr))
-	return mmapData{f: f, d: data[:size], raw: data[:size], h: uintptr(h)}
+	var data []byte
+	hdr := (*reflect.SliceHeader)(unsafe.Pointer(&data))
+	hdr.Data = addr
+	hdr.Len = int(size)
+	hdr.Cap = int(size)
+	return mmapData{f: f, d: data, raw: data, addr: addr, h: uintptr(h)}
 }
 
 func unmmapFile(mm *mmapData) error {
 	var err error
-	if len(mm.d) > 0 {
-		err = syscall.UnmapViewOfFile(uintptr(unsafe.Pointer(&mm.d[0])))
+	if mm.addr != 0 {
+		err = syscall.UnmapViewOfFile(mm.addr)
 	}
 	if mm.h != 0 {
 		if e := syscall.CloseHandle(syscall.Handle(mm.h)); err == nil {

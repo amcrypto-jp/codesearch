@@ -646,10 +646,11 @@ func (ix *Index) corrupt() {
 
 // An mmapData is mmap'ed read-only data from a file.
 type mmapData struct {
-	f   *os.File
-	d   []byte
-	raw []byte
-	h   uintptr
+	f    *os.File
+	d    []byte
+	raw  []byte
+	addr uintptr
+	h    uintptr
 }
 
 func (ix *Index) Close() error {
