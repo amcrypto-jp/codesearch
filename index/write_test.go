@@ -13,6 +13,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -360,6 +361,43 @@ func TestHeap(t *testing.T) {
 		if a > b {
 			t.Fatalf("%d should <= %d", a, b)
 		}
+	}
+}
+
+func TestSortPostConcurrent(t *testing.T) {
+	const (
+		goroutines = 8
+		iterations = 100
+		entries    = 4096
+	)
+
+	var wg sync.WaitGroup
+	errc := make(chan string, goroutines)
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(seed int) {
+			defer wg.Done()
+
+			post := make([]postEntry, entries)
+			for iter := 0; iter < iterations; iter++ {
+				for i := range post {
+					trigram := uint32((entries - i + seed*8191 + iter*131) & int(invalidTrigram-1))
+					post[i] = makePostEntry(trigram, i)
+				}
+				sortPost(post)
+				for i := 1; i < len(post); i++ {
+					if post[i-1] > post[i] {
+						errc <- fmt.Sprintf("post[%d]=%d > post[%d]=%d", i-1, post[i-1], i, post[i])
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errc)
+	for err := range errc {
+		t.Error(err)
 	}
 }
 
