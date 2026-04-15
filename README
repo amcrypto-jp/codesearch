@@ -1,16 +1,50 @@
-Code Search is a tool for indexing and then performing
-regular expression searches over large bodies of source code.
-It is a set of command-line programs written in Go.
+Code Search
+===========
 
-For background and an overview of the commands,
-see http://swtch.com/~rsc/regexp/regexp4.html.
+Code Search indexes source trees and searches them with RE2 regular
+expressions. This fork keeps the current Google codebase usable and adds
+practical command-line features from maintained forks.
 
-To install:
+Install
+-------
 
-	go get github.com/google/codesearch/cmd/...
+	go install github.com/google/codesearch/cmd/...@latest
 
-Use "go get -u" to update an existing installation.
+Commands
+--------
 
-Russ Cox
-rsc@swtch.com
-June 2015
+	cindex [options] [path...]
+	csearch [options] regexp
+	cgrep [options] regexp [file...]
+	csweb [options]
+
+Useful additions in this fork:
+
+* cindex -indexpath FILE, csearch -indexpath FILE, and csweb -indexpath FILE
+  select an index file without changing $CSEARCHINDEX.
+* cindex -exclude FILE reads file and directory exclusion patterns.
+* cindex -filelist FILE reads paths to index from a file, one per line.
+* cindex -logskip logs why files were skipped.
+* cindex -maxfilelen, -maxlinelen, and -maxtrigrams tune text-file detection.
+* csearch -all also searches regular files under indexed roots that are not
+  represented in the index.
+* csearch -exclude FILE excludes patterns during -all searches.
+* csearch -m and -M limit total matches and matches per file.
+* csearch -l -0 and cgrep -l -0 print NUL-separated file names.
+
+Pattern Files
+-------------
+
+Pattern files used by -exclude contain one filepath pattern per line. Blank
+lines and lines beginning with # are ignored. Patterns without path separators
+match a file or directory base name. Patterns containing path separators match
+the slash-separated path.
+
+Background
+----------
+
+For background and an overview of the original commands, see:
+
+	http://swtch.com/~rsc/regexp/regexp4.html
+
+Original Code Search was written by Russ Cox.
