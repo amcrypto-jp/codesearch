@@ -18,13 +18,13 @@ import (
 	"github.com/google/codesearch/regexp"
 )
 
-var usageMessage = `usage: csearch [-c] [-f fileregexp] [-h] [-i] [-l] [-n] regexp
+var usageMessage = `usage: csearch [-c] [-f fileregexp] [-h] [-i] [-l [-0]] [-n] regexp
 
 Csearch behaves like grep over all indexed files, searching for regexp,
 an RE2 (nearly PCRE) regular expression.
 
-The -c, -h, -i, -l, and -n flags are as in grep, although note that as per Go's
-flag parsing convention, they cannot be combined: the option pair -i -n
+The -c, -h, -i, -l, -m, -M, and -n flags are as in grep, although note
+that as per Go's flag parsing convention, they cannot be combined: the option pair -i -n
 cannot be abbreviated to -in.
 
 The -f flag restricts the search to files whose names match the RE2 regular
@@ -57,6 +57,8 @@ var (
 	bruteFlag   = flag.Bool("brute", false, "brute force - search all files in index")
 	cpuProfile  = flag.String("cpuprofile", "", "write cpu profile to this file")
 	indexPath   = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
+	maxCount    = flag.Int("m", 0, "stop after this many matches")
+	maxPerFile  = flag.Int("M", 0, "stop after this many matches in each file")
 
 	matches bool
 )
@@ -76,9 +78,11 @@ func Main() {
 	}
 	args := flag.Args()
 
-	if len(args) != 1 {
+	if len(args) != 1 || g.Z && !g.L || g.Z && (g.C || g.H) || *maxPerFile > 0 && (g.C || g.L) || *maxCount > 0 && g.C {
 		usage()
 	}
+	g.Limit = *maxCount
+	g.FileLimit = *maxPerFile
 
 	if *cpuProfile != "" {
 		f, err := os.Create(*cpuProfile)
@@ -156,6 +160,9 @@ func Main() {
 		name := ix.Name(fileid).String()
 		if g.L && (pat == "(?m)" || pat == "(?i)(?m)") {
 			g.Reader(bytes.NewReader(nil), name)
+			if g.Done {
+				break
+			}
 			continue
 		}
 		file, err := os.Open(string(name))
@@ -187,6 +194,9 @@ func Main() {
 					}
 					g.Reader(r, name)
 					r.Close()
+					if g.Done {
+						break
+					}
 					continue
 				}
 			}
@@ -194,6 +204,9 @@ func Main() {
 		}
 		g.Reader(file, name)
 		file.Close()
+		if g.Done {
+			break
+		}
 	}
 
 	matches = g.Match

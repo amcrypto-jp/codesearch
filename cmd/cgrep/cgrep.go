@@ -14,13 +14,15 @@ import (
 	"github.com/google/codesearch/regexp"
 )
 
-var usageMessage = `usage: cgrep [-c] [-h] [-i] [-l] [-n] [-v] regexp [file...]
+var usageMessage = `usage: cgrep [-c] [-h] [-i] [-l [-0]] [-n] [-v] regexp [file...]
 
 Cgrep behaves like grep, searching for regexp, an RE2 (nearly PCRE) regular expression.
 
 The -c, -h, -i, -l, -n, and -v flags are as in grep, although note that as per Go's
 flag parsing convention, they cannot be combined: the option pair -i -n
 cannot be abbreviated to -in.
+
+The -0 flag changes -l output to use NUL separators.
 `
 
 func usage() {
@@ -43,7 +45,7 @@ func main() {
 	flag.Usage = usage
 	flag.Parse()
 	args := flag.Args()
-	if len(args) == 0 {
+	if len(args) == 0 || g.Z && !g.L {
 		flag.Usage()
 	}
 

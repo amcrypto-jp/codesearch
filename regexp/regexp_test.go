@@ -197,6 +197,9 @@ var grepTests = []struct {
 }{
 	{re: `a+`, s: "abc\ndef\nghalloo\n", out: "input:abc\ninput:ghalloo\n"},
 	{re: `x.*y`, s: "xay\nxa\ny\n", out: "input:xay\n"},
+	{re: `a+`, s: "abc\nabc\nabc\n", out: "input:abc\ninput:abc\n", g: Grep{Limit: 2}},
+	{re: `a+`, s: "abc\nabc\n", out: "input:abc\n", g: Grep{FileLimit: 1}},
+	{re: `a+`, s: "abc\n", out: "input\x00", g: Grep{L: true, Z: true}},
 }
 
 func TestGrep(t *testing.T) {

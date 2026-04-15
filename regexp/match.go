@@ -358,16 +358,19 @@ type Grep struct {
 	Stderr io.Writer // error target
 
 	L bool // L flag - print file names only
+	Z bool // 0 flag - separate file names with NUL
 	C bool // C flag - print count of matches
 	N bool // N flag - print line numbers
 	H bool // H flag - do not print file names
 	V bool // V flag - print non-matching lines (only for cgrep, not csearch)
 
-	HTML    bool // emit HTML output for csweb
-	Match   bool // were any matches found?
-	Matches int  // how many matches were found?
-	Limit   int  // stop after this many matches
-	Limited bool // stopped because of limit
+	HTML      bool // emit HTML output for csweb
+	Match     bool // were any matches found?
+	Matches   int  // how many matches were found?
+	Limit     int  // stop after this many matches
+	FileLimit int  // stop after this many matches in each file
+	Limited   bool // stopped because of limit
+	Done      bool // stopped because of global limit
 
 	PreContext  int // number of lines to print after
 	PostContext int // number of lines to print before
@@ -377,6 +380,7 @@ type Grep struct {
 
 func (g *Grep) AddFlags() {
 	flag.BoolVar(&g.L, "l", false, "list matching files only")
+	flag.BoolVar(&g.Z, "0", false, "separate -l output with NUL bytes")
 	flag.BoolVar(&g.C, "c", false, "print match counts only")
 	flag.BoolVar(&g.N, "n", false, "show line numbers")
 	flag.BoolVar(&g.H, "h", false, "omit file names")
@@ -430,20 +434,28 @@ func countNL(b []byte) int {
 }
 
 func (g *Grep) Reader(r io.Reader, name string) {
+	if g.Done {
+		return
+	}
 	if g.buf == nil {
 		g.buf = make([]byte, 1<<20)
 	}
 	var (
-		buf        = g.buf[:0]
-		needLineno = g.N || g.HTML
-		lineno     = 1
-		count      = 0
-		prefix     = ""
-		beginText  = true
-		endText    = false
+		buf         = g.buf[:0]
+		needLineno  = g.N || g.HTML
+		lineno      = 1
+		count       = 0
+		fileMatches = 0
+		prefix      = ""
+		beginText   = true
+		endText     = false
+		listSep     = "\n"
 	)
 	if !g.H {
 		prefix = name + ":"
+	}
+	if g.Z {
+		listSep = "\x00"
 	}
 	chunkStart := 0
 	for {
@@ -470,14 +482,19 @@ func (g *Grep) Reader(r io.Reader, name string) {
 			g.Match = true
 			if g.Limit > 0 && g.Matches >= g.Limit {
 				g.Limited = true
+				g.Done = true
+				return
+			}
+			if g.FileLimit > 0 && fileMatches >= g.FileLimit {
 				return
 			}
 			g.Matches++
+			fileMatches++
 			if g.L {
 				if g.HTML {
 					fmt.Fprintf(g.Stdout, "<a href=\"show/%s\">%s</a>\n", g.esc(name), g.esc(name))
 				} else {
-					fmt.Fprintf(g.Stdout, "%s\n", name)
+					fmt.Fprintf(g.Stdout, "%s%s", name, listSep)
 				}
 				return
 			}
