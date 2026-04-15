@@ -59,6 +59,9 @@ By default cindex skips files containing invalid UTF-8. The
 -maxinvalidutf8ratio flag permits a limited ratio of invalid UTF-8 byte pairs
 and indexes only trigrams that do not span invalid pairs.
 
+By default cindex ignores symlinks. The -follow-symlinks flag indexes
+symlinked files and directories under their symlink paths.
+
 The -filelist flag names a file containing paths to index, one per line.
 
 By default cindex adds the named paths to the index but preserves
@@ -83,6 +86,7 @@ var (
 	logSkipFlag         = flag.Bool("logskip", false, "log information about skipped files")
 	excludeFlag         = flag.String("exclude", "", "read file exclusion patterns from this file")
 	includeHiddenFlag   = flag.Bool("includehidden", false, "index hidden files and directories except VCS directories")
+	followSymlinksFlag  = flag.Bool("follow-symlinks", false, "follow symlinked files and directories")
 	fileList            = flag.String("filelist", "", "read paths to index from this file")
 	maxFileLen          = flag.Int64("maxfilelen", index.DefaultMaxFileLen, "skip files longer than this many bytes")
 	maxLineLen          = flag.Int("maxlinelen", index.DefaultMaxLineLen, "skip files with a line longer than this many bytes")
@@ -193,41 +197,10 @@ func main() {
 	ix.MaxTextTrigrams = *maxTrigrams
 	ix.MaxInvalidUTF8Ratio = *maxInvalidUTF8Ratio
 	ix.AddRoots(roots)
+	seenDirs := make(map[string]bool)
 	for _, root := range roots {
 		log.Printf("index %s", root)
-		filepath.Walk(root.String(), func(path string, info os.FileInfo, err error) error {
-			if _, elem := filepath.Split(path); elem != "" {
-				if isExcluded(path, elem) {
-					if ix.LogSkip {
-						log.Printf("%s: excluded, ignoring", path)
-					}
-					if info != nil && info.IsDir() {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-				if shouldSkipName(elem, info != nil && info.IsDir()) {
-					if ix.LogSkip {
-						log.Printf("%s: skipped, ignoring", path)
-					}
-					if info != nil && info.IsDir() {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-			}
-			if err != nil {
-				log.Printf("%s: %s", path, err)
-				return nil
-			}
-			if info != nil && info.Mode()&os.ModeType == 0 {
-				if err := ix.AddFile(path); err != nil {
-					log.Printf("%s: %s", path, err)
-					return nil
-				}
-			}
-			return nil
-		})
+		walkIndex(ix, root.String(), root.String(), seenDirs)
 	}
 	log.Printf("flush index")
 	ix.Flush()
@@ -275,6 +248,120 @@ func removeIndex(name string) {
 	if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("removing %s: %v", name, err)
 	}
+}
+
+func walkIndex(ix *index.IndexWriter, root, nameRoot string, seenDirs map[string]bool) {
+	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		name := indexedPath(root, nameRoot, path)
+		if walkErr != nil {
+			log.Printf("%s: %s", name, walkErr)
+			return nil
+		}
+		if info == nil {
+			return nil
+		}
+		if _, elem := filepath.Split(name); elem != "" {
+			if isExcluded(name, elem) {
+				if ix.LogSkip {
+					log.Printf("%s: excluded, ignoring", name)
+				}
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if shouldSkipName(elem, info.IsDir()) {
+				if ix.LogSkip {
+					log.Printf("%s: skipped, ignoring", name)
+				}
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return walkSymlink(ix, name, seenDirs)
+		}
+		if info.IsDir() {
+			if real, err := realPath(name); err == nil {
+				seenDirs[real] = true
+			}
+			return nil
+		}
+		if info.Mode()&os.ModeType == 0 {
+			if err := ix.AddFile(name); err != nil {
+				log.Printf("%s: %s", name, err)
+			}
+			return nil
+		}
+		if ix.LogSkip {
+			log.Printf("%s: unsupported file type, ignoring", name)
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func walkSymlink(ix *index.IndexWriter, name string, seenDirs map[string]bool) error {
+	if !*followSymlinksFlag {
+		if ix.LogSkip {
+			log.Printf("%s: symlink, ignoring", name)
+		}
+		return nil
+	}
+	info, err := os.Stat(name)
+	if err != nil {
+		log.Printf("%s: symlink target: %s", name, err)
+		return nil
+	}
+	if info.Mode().IsRegular() {
+		if err := ix.AddFile(name); err != nil {
+			log.Printf("%s: %s", name, err)
+		}
+		return nil
+	}
+	if !info.IsDir() {
+		if ix.LogSkip {
+			log.Printf("%s: unsupported symlink target, ignoring", name)
+		}
+		return nil
+	}
+	real, err := realPath(name)
+	if err != nil {
+		log.Printf("%s: symlink target: %s", name, err)
+		return nil
+	}
+	if seenDirs[real] {
+		if ix.LogSkip {
+			log.Printf("%s: already indexed symlink target, ignoring", name)
+		}
+		return nil
+	}
+	seenDirs[real] = true
+	walkIndex(ix, real, name, seenDirs)
+	return nil
+}
+
+func indexedPath(root, nameRoot, path string) string {
+	if root == nameRoot {
+		return path
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." {
+		return nameRoot
+	}
+	return filepath.Join(nameRoot, rel)
+}
+
+func realPath(name string) (string, error) {
+	real, err := filepath.EvalSymlinks(name)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(real)
 }
 
 func shouldSkipName(elem string, isDir bool) bool {
