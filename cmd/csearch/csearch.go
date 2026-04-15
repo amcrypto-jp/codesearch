@@ -35,7 +35,9 @@ expression fileregexp.
 The -all flag searches all regular files under the indexed roots after the
 indexed search, so new or changed files not represented in the index are not
 missed. The -exclude flag names a file containing filepath patterns, one per
-line, to exclude during the -all walk.
+line, to exclude during the -all walk. By default the -all walk skips hidden
+dot-files and dot-directories. The -includehidden flag searches hidden files
+while still skipping VCS directories, backup names, and explicit exclusions.
 
 Csearch relies on the existence of an up-to-date index created ahead of time.
 To build or rebuild the index that csearch uses, run:
@@ -57,21 +59,22 @@ func usage() {
 }
 
 var (
-	fFlag       = flag.String("f", "", "search only files with names matching this regexp")
-	iFlag       = flag.Bool("i", false, "case-insensitive search")
-	htmlFlag    = flag.Bool("html", false, "print HTML output")
-	verboseFlag = flag.Bool("verbose", false, "print extra information")
-	bruteFlag   = flag.Bool("brute", false, "brute force - search all files in index")
-	allFlag     = flag.Bool("all", false, "also search regular files under indexed roots")
-	excludeFlag = flag.String("exclude", "", "read -all file exclusion patterns from this file")
-	cpuProfile  = flag.String("cpuprofile", "", "write cpu profile to this file")
-	indexPath   = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
-	maxCount    = flag.Int("m", 0, "stop after this many matches")
-	maxPerFile  = flag.Int("M", 0, "stop after this many matches in each file")
+	fFlag             = flag.String("f", "", "search only files with names matching this regexp")
+	iFlag             = flag.Bool("i", false, "case-insensitive search")
+	htmlFlag          = flag.Bool("html", false, "print HTML output")
+	verboseFlag       = flag.Bool("verbose", false, "print extra information")
+	bruteFlag         = flag.Bool("brute", false, "brute force - search all files in index")
+	allFlag           = flag.Bool("all", false, "also search regular files under indexed roots")
+	excludeFlag       = flag.String("exclude", "", "read -all file exclusion patterns from this file")
+	includeHiddenFlag = flag.Bool("includehidden", false, "include hidden files and directories in -all search")
+	cpuProfile        = flag.String("cpuprofile", "", "write cpu profile to this file")
+	indexPath         = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
+	maxCount          = flag.Int("m", 0, "stop after this many matches")
+	maxPerFile        = flag.Int("M", 0, "stop after this many matches in each file")
 
 	matches bool
 
-	excludePatterns []string
+	excludePatterns = []string{".csearchindex"}
 )
 
 func Main() {
@@ -259,7 +262,7 @@ func walkAll(root string, seen map[string]bool, fre *regexp.Regexp, g *regexp.Gr
 			return nil
 		}
 		if _, elem := filepath.Split(file); elem != "" {
-			if isExcluded(file, elem) || isTemporaryName(elem) {
+			if isExcluded(file, elem) || shouldSkipName(elem, info.IsDir()) {
 				if info.IsDir() {
 					return filepath.SkipDir
 				}
@@ -285,8 +288,25 @@ func walkAll(root string, seen map[string]bool, fre *regexp.Regexp, g *regexp.Gr
 	}
 }
 
-func isTemporaryName(elem string) bool {
-	return elem[0] == '.' || elem[0] == '#' || elem[0] == '~' || elem[len(elem)-1] == '~'
+func shouldSkipName(elem string, isDir bool) bool {
+	if elem == "" {
+		return false
+	}
+	if elem[0] == '#' || elem[0] == '~' || elem[len(elem)-1] == '~' {
+		return true
+	}
+	if isDir && isVCSDir(elem) {
+		return true
+	}
+	return !*includeHiddenFlag && elem[0] == '.'
+}
+
+func isVCSDir(elem string) bool {
+	switch elem {
+	case ".git", ".hg", ".bzr", ".svn", ".svk", "SCCS", "CVS", "_darcs", "_MTN":
+		return true
+	}
+	return false
 }
 
 func readListFile(name string) []string {

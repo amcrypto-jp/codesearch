@@ -51,6 +51,10 @@ in the future, possibly in incompatible ways.
 The -exclude flag names a file containing filepath patterns, one per line,
 to exclude from indexing. Blank lines and lines beginning with # are ignored.
 
+By default cindex skips hidden dot-files and dot-directories. The -includehidden
+flag indexes hidden source files while still skipping VCS directories, backup
+names, and explicit exclusions.
+
 The -filelist flag names a file containing paths to index, one per line.
 
 By default cindex adds the named paths to the index but preserves
@@ -66,20 +70,21 @@ func usage() {
 }
 
 var (
-	listFlag    = flag.Bool("list", false, "list indexed paths and exit")
-	resetFlag   = flag.Bool("reset", false, "discard existing index")
-	verboseFlag = flag.Bool("verbose", false, "print extra information")
-	cpuProfile  = flag.String("cpuprofile", "", "write cpu profile to this file")
-	checkFlag   = flag.Bool("check", false, "check index is well-formatted")
-	indexPath   = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
-	logSkipFlag = flag.Bool("logskip", false, "log information about skipped files")
-	excludeFlag = flag.String("exclude", "", "read file exclusion patterns from this file")
-	fileList    = flag.String("filelist", "", "read paths to index from this file")
-	maxFileLen  = flag.Int64("maxfilelen", index.DefaultMaxFileLen, "skip files longer than this many bytes")
-	maxLineLen  = flag.Int("maxlinelen", index.DefaultMaxLineLen, "skip files with a line longer than this many bytes")
-	maxTrigrams = flag.Int("maxtrigrams", index.DefaultMaxTextTrigrams, "skip files with more than this many distinct trigrams")
-	zipFlag     = flag.Bool("zip", false, "index content in zip files")
-	statsFlag   = flag.Bool("stats", false, "print index size statistics")
+	listFlag          = flag.Bool("list", false, "list indexed paths and exit")
+	resetFlag         = flag.Bool("reset", false, "discard existing index")
+	verboseFlag       = flag.Bool("verbose", false, "print extra information")
+	cpuProfile        = flag.String("cpuprofile", "", "write cpu profile to this file")
+	checkFlag         = flag.Bool("check", false, "check index is well-formatted")
+	indexPath         = flag.String("indexpath", "", "use this index file instead of $CSEARCHINDEX or $HOME/.csearchindex")
+	logSkipFlag       = flag.Bool("logskip", false, "log information about skipped files")
+	excludeFlag       = flag.String("exclude", "", "read file exclusion patterns from this file")
+	includeHiddenFlag = flag.Bool("includehidden", false, "index hidden files and directories except VCS directories")
+	fileList          = flag.String("filelist", "", "read paths to index from this file")
+	maxFileLen        = flag.Int64("maxfilelen", index.DefaultMaxFileLen, "skip files longer than this many bytes")
+	maxLineLen        = flag.Int("maxlinelen", index.DefaultMaxLineLen, "skip files with a line longer than this many bytes")
+	maxTrigrams       = flag.Int("maxtrigrams", index.DefaultMaxTextTrigrams, "skip files with more than this many distinct trigrams")
+	zipFlag           = flag.Bool("zip", false, "index content in zip files")
+	statsFlag         = flag.Bool("stats", false, "print index size statistics")
 
 	excludePatterns = []string{".csearchindex"}
 )
@@ -192,8 +197,10 @@ func main() {
 					}
 					return nil
 				}
-				// Skip various temporary or "hidden" files or directories.
-				if elem[0] == '.' || elem[0] == '#' || elem[0] == '~' || elem[len(elem)-1] == '~' {
+				if shouldSkipName(elem, info != nil && info.IsDir()) {
+					if ix.LogSkip {
+						log.Printf("%s: skipped, ignoring", path)
+					}
 					if info != nil && info.IsDir() {
 						return filepath.SkipDir
 					}
@@ -259,6 +266,27 @@ func removeIndex(name string) {
 	if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
 		log.Fatalf("removing %s: %v", name, err)
 	}
+}
+
+func shouldSkipName(elem string, isDir bool) bool {
+	if elem == "" {
+		return false
+	}
+	if elem[0] == '#' || elem[0] == '~' || elem[len(elem)-1] == '~' {
+		return true
+	}
+	if isDir && isVCSDir(elem) {
+		return true
+	}
+	return !*includeHiddenFlag && elem[0] == '.'
+}
+
+func isVCSDir(elem string) bool {
+	switch elem {
+	case ".git", ".hg", ".bzr", ".svn", ".svk", "SCCS", "CVS", "_darcs", "_MTN":
+		return true
+	}
+	return false
 }
 
 func expandTilde(name string) string {
